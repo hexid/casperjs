@@ -184,92 +184,6 @@ CasperError.prototype = Object.getPrototypeOf(new Error());
     }
 
     /**
-     * Patched require to allow loading of native casperjs modules.
-     * Every casperjs module have to first call this function in order to
-     * load a native casperjs module:
-     *
-     *     var require = patchRequire(require);
-     *     var utils = require('utils');
-     *
-     * Useless for SlimerJS
-     */
-    function patchRequire(require) {
-        if (require.patched) {
-            return require;
-        }
-        function fromPackageJson(module, dir) {
-            var pkgPath, pkgContents, pkg;
-            pkgPath = fs.pathJoin(dir, module, 'package.json');
-            if (!fs.exists(pkgPath)) {
-                return;
-            }
-            pkgContents = fs.read(pkgPath);
-            if (!pkgContents) {
-                return;
-            }
-            try {
-                pkg = JSON.parse(pkgContents);
-            } catch (e) {
-                return;
-            }
-            if (typeof pkg === "object" && pkg.main) {
-                return fs.absolute(fs.pathJoin(dir, module, pkg.main));
-            }
-        }
-        function resolveFile(path, dir) {
-            var extensions = ['js', 'coffee', 'json'];
-            var basenames = [path, path + '/index'];
-            var paths = [];
-            var nodejsScript = fromPackageJson(path, dir);
-            if (nodejsScript) {
-                return nodejsScript;
-            }
-            basenames.forEach(function(basename) {
-                paths.push(fs.absolute(fs.pathJoin(dir, basename)));
-                extensions.forEach(function(extension) {
-                    paths.push(fs.absolute(fs.pathJoin(dir, [basename, extension].join('.'))));
-                });
-            });
-            for (var i = 0; i < paths.length; i++) {
-                if (fs.isFile(paths[i])) {
-                    return paths[i];
-                }
-            }
-            return null;
-        }
-        function getCurrentScriptRoot() {
-            if ((phantom.casperScriptBaseDir || "").indexOf(fs.workingDirectory) === 0) {
-                return phantom.casperScriptBaseDir;
-            }
-            return fs.absolute(fs.pathJoin(fs.workingDirectory, phantom.casperScriptBaseDir));
-        }
-        function casperBuiltinPath(path) {
-            return resolveFile(path, fs.pathJoin(phantom.casperPath, 'modules'));
-        }
-        function nodeModulePath(path) {
-            return resolveFile(path, fs.pathJoin(getCurrentScriptRoot(), 'node_modules'));
-        }
-        function localModulePath(path) {
-            return resolveFile(path, phantom.casperScriptBaseDir || fs.workingDirectory);
-        }
-        var patchedRequire = function patchedRequire(path) {
-            try {
-                return require(casperBuiltinPath(path) ||
-                               nodeModulePath(path)    ||
-                               localModulePath(path)   ||
-                               path);
-            } catch (e) {
-                throw new CasperError("Can't find module " + path);
-            }
-        };
-        patchedRequire.cache = require.cache;
-        patchedRequire.extensions = require.extensions;
-        patchedRequire.stubs = require.stubs;
-        patchedRequire.patched = true;
-        return patchedRequire;
-    }
-
-    /**
      * Initializes the CasperJS Command Line Interface.
      */
     function initCasperCli(casperArgs) {
@@ -322,15 +236,11 @@ CasperError.prototype = Object.getPrototypeOf(new Error());
 
     // CasperJS version, extracted from package.json - see http://semver.org/
     phantom.casperVersion = (function getCasperVersion(path) {
-        var parts, patchPart, pkg, pkgFile;
-        pkgFile = fs.absolute(fs.pathJoin(path, 'package.json'));
-        if (!fs.exists(pkgFile)) {
-            throw new CasperError('Cannot find package.json at ' + pkgFile);
-        }
+        var parts, patchPart, pkg;
         try {
-            pkg = JSON.parse(require('fs').read(pkgFile));
+            pkg = require(fs.pathJoin(path, 'package.json'));
         } catch (e) {
-            throw new CasperError('Cannot read package file contents: ' + e);
+            throw e;
         }
         parts  = pkg.version.trim().split(".");
         if (parts.length < 3) {
@@ -352,24 +262,18 @@ CasperError.prototype = Object.getPrototypeOf(new Error());
         };
     })(phantom.casperPath);
 
+    // declare a dummy patchRequire function so errors aren't thrown
+    global.patchRequire = function(req) {return req;};
     if ("slimer" in global) {
-        // for SlimerJS, use the standard API to declare directories
-        // where to search modules
-        require.paths.push(fs.pathJoin(phantom.casperPath, 'modules'));
-        require.paths.push(fs.workingDirectory);
-
-        // declare a dummy patchRequire function
-        require.globals.patchRequire = global.patchRequire = function(req) { return req;};
         require.globals.CasperError = CasperError;
         phantom.casperEngine = "slimerjs";
     }
     else {
-        // patch require
-        global.__require = require;
-        global.patchRequire = patchRequire; // must be called in every casperjs module as of 1.1
-        global.require = patchRequire(global.require);
         phantom.casperEngine = "phantomjs";
     }
+
+    require.paths.push(fs.pathJoin(phantom.casperPath, 'modules'));
+    require.paths.push(fs.workingDirectory);
 
     // casper cli args
     phantom.casperArgs = require('cli').parse(phantomArgs);
@@ -378,12 +282,12 @@ CasperError.prototype = Object.getPrototypeOf(new Error());
         initCasperCli(phantom.casperArgs);
     }
 
-    if ("slimer" in global && phantom.casperScriptBaseDir) {
-        // initCasperCli has set casperScriptBaseDir
-        // use it instead of fs.workingDirectory
-        require.paths.pop();
+    if ((phantom.casperScriptBaseDir || "").indexOf(fs.workingDirectory) === 0) {
         require.paths.push(phantom.casperScriptBaseDir);
+    } else {
+        require.paths.push(fs.pathJoin(fs.workingDirectory, phantom.casperScriptBaseDir));
     }
+    require.paths.push(fs.pathJoin(require.paths[require.paths.length-1], 'node_modules'));
 
     // casper loading status flag
     phantom.casperLoaded = true;

@@ -28,9 +28,8 @@
  *
  */
 
-/*global CasperError, exports, phantom, __utils__, patchRequire, require:true*/
+/*global CasperError, exports, phantom, __utils__, require:true*/
 
-var require = patchRequire(require);
 var fs = require('fs');
 var events = require('events');
 var utils = require('utils');

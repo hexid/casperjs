@@ -28,9 +28,8 @@
  *
  */
 
-/*global patchRequire, require:true*/
+/*global require:true*/
 
-var require = patchRequire(require);
 var utils = require('utils');
 
 /*
