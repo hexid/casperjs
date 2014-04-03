@@ -159,6 +159,7 @@ class casperjs {
         psi.FileName = ENGINE_FILE;
         psi.UseShellExecute = false;
         psi.RedirectStandardOutput = true;
+        psi.WorkingDirectory = Directory.GetCurrentDirectory();
         psi.Arguments = String.Join(" ", CASPER_COMMAND.ToArray());
 
         try {
